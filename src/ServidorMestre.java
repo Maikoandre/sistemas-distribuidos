@@ -1,3 +1,4 @@
+// ServidorMestre.java
 import java.io.IOException;
 import java.net.InetAddress;
 import java.text.Normalizer;
@@ -7,21 +8,16 @@ import java.util.Scanner;
 
 public class ServidorMestre {
 
-    // Classe interna simples para guardar dados do jogador
     static class Player {
         InetAddress ip;
         int port;
         String name;
-
-        Player(InetAddress ip, int port, String name) {
-            this.ip = ip;
-            this.port = port;
-            this.name = name;
-        }
+        Player(InetAddress ip, int port, String name) { this.ip = ip; this.port = port; this.name = name; }
     }
 
-    private static final List<Player> players = new ArrayList<>();
+    private static List<Player> players = new ArrayList<>();
     private static Connection conn;
+    // Tornamos a palavra estática para ser acessada no método de perguntas
     private static String secretWord = "";
     private static String secretWordClean = "";
 
@@ -52,36 +48,35 @@ public class ServidorMestre {
             while (gameRunning) {
                 Player atual = players.get(turnIndex);
 
-                // Avisa os outros de quem é a vez
                 broadcastExcept("MSG:Vez do jogador " + atual.name, atual);
 
-                // Lógica do turno do jogador atual
                 boolean turnEnded = false;
                 while (!turnEnded) {
                     // Envia Menu para o jogador e pede INPUT
                     String menu = "\n--- SUA VEZ ---\n1. Regras\n2. Perguntar\n3. Chutar\n4. Passar\nEscolha: ";
                     conn.sendTo("INPUT:" + menu, atual.ip, atual.port);
 
-                    // Recebe resposta (O servidor fica parado esperando o jogador atual)
                     String respData = conn.receive().split("\\|")[0];
 
                     switch (respData) {
                         case "1": // Regras
                             conn.sendTo("MSG:Regras: Faça perguntas de Sim/Não ou tente chutar.", atual.ip, atual.port);
-                            break; // Loop continua, não encerra turno
+                            break;
                         case "2": // Perguntar
                             conn.sendTo("INPUT:Digite sua pergunta: ", atual.ip, atual.port);
                             String pergunta = conn.receive().split("\\|")[0];
 
                             broadcast("MSG:" + atual.name + " perguntou: " + pergunta);
-                            String respostaMestre = perguntarAoMestre(console, pergunta);
+
+                            // AQUI CHAMAMOS O NOVO MENU
+                            String respostaMestre = perguntarAoMestre(console, pergunta, atual.name);
+
                             broadcast("MSG:Mestre respondeu: " + respostaMestre);
 
-                            // Após perguntar, pode chutar ou passar
                             conn.sendTo("INPUT:Deseja chutar agora? (S/N): ", atual.ip, atual.port);
                             if (conn.receive().split("\\|")[0].equalsIgnoreCase("S")) {
                                 turnEnded = processarChute(atual, console);
-                                if (!turnEnded && gameRunning) turnEnded = true; // Se errou, passa a vez
+                                if (!turnEnded && gameRunning) turnEnded = true;
                             } else {
                                 turnEnded = true;
                             }
@@ -97,13 +92,11 @@ public class ServidorMestre {
                             conn.sendTo("MSG:Opção inválida.", atual.ip, atual.port);
                     }
 
-                    // Verifica se alguém ganhou dentro de processarChute
                     if (secretWordClean.equals("ACERTOU_FIM")) {
                         gameRunning = false;
                         turnEnded = true;
                     }
                 }
-                // Passa para o próximo jogador
                 turnIndex = (turnIndex + 1) % players.size();
             }
 
@@ -121,26 +114,70 @@ public class ServidorMestre {
 
         if (removerAcentos(chute).equalsIgnoreCase(secretWordClean)) {
             broadcast("MSG:O jogador " + player.name + " ACERTOU! A palavra era " + secretWord);
-            secretWordClean = "ACERTOU_FIM"; // Flag para sair do loop
+            secretWordClean = "ACERTOU_FIM";
             return true;
         } else {
             broadcast("MSG:" + player.name + " chutou '" + chute + "' e ERROU.");
-            System.out.println("O jogador errou. Escolha a dica (1-Frio, 2-Morno, 3-Quente): ");
-            String dica = console.nextLine();
-            String textoDica = dica.equals("1") ? "Frio" : dica.equals("2") ? "Morno" : "Quente";
-            broadcast("MSG:Dica do Mestre: " + textoDica);
-            return true; // Errou, passa a vez
+
+            // Menu de Dicas ao errar
+            String dica = "";
+            while(true) {
+                System.out.println("\nO jogador errou. Escolha a dica:");
+                System.out.println("1. Frio");
+                System.out.println("2. Morno");
+                System.out.println("3. Quente");
+                System.out.println("4. Relembrar palavra");
+                System.out.print("Opção: ");
+                String op = console.nextLine();
+
+                if(op.equals("4")) {
+                    System.out.println(">> Palavra secreta: " + secretWord);
+                    continue;
+                }
+                if(op.equals("1")) { dica = "Frio"; break; }
+                if(op.equals("2")) { dica = "Morno"; break; }
+                if(op.equals("3")) { dica = "Quente"; break; }
+            }
+
+            broadcast("MSG:Dica do Mestre: " + dica);
+            return true;
         }
     }
 
-    private static String perguntarAoMestre(Scanner console, String pergunta) {
-        System.out.println("Pergunta feita: " + pergunta);
-        System.out.println("Responda: 1.Sim 2.Não 3.Talvez 4.Sem Resposta");
-        String op = console.nextLine();
-        if (op.equals("1")) return "Sim";
-        if (op.equals("2")) return "Não";
-        if (op.equals("3")) return "Talvez";
-        return "Não sei/Não posso responder";
+    // --- MÉTODO ATUALIZADO COM O NOVO MENU ---
+    private static String perguntarAoMestre(Scanner console, String pergunta, String nomeJogador) {
+        System.out.println("\n>>> NOVA PERGUNTA DE " + nomeJogador.toUpperCase() + ": " + pergunta);
+
+        while (true) {
+            System.out.println("\nMenu do jogo - perfil Mestre:");
+            System.out.println("1. Sim.");
+            System.out.println("2. Não.");
+            System.out.println("3. Talvez.");
+            System.out.println("4. Não sei.");
+            System.out.println("5. Não posso responder.");
+            System.out.println("6. Relembrar qual palavra escolhi.");
+            System.out.print("Sua escolha: ");
+
+            String choice = console.nextLine();
+
+            if (choice.equals("6")) {
+                System.out.println("\n>> A PALAVRA SECRETA É: " + secretWord);
+                // O loop continua, pois o mestre ainda não deu a resposta para o jogador
+                continue;
+            } else if (choice.equals("1")) {
+                return "Sim.";
+            } else if (choice.equals("2")) {
+                return "Não.";
+            } else if (choice.equals("3")) {
+                return "Talvez.";
+            } else if (choice.equals("4")) {
+                return "Não sei.";
+            } else if (choice.equals("5")) {
+                return "Não posso responder.";
+            } else {
+                System.out.println("Opção inválida. Tente novamente.");
+            }
+        }
     }
 
     private static void broadcast(String msg) throws IOException {
